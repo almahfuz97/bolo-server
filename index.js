@@ -3,6 +3,8 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const { query } = require('express');
+const http = require('http');
+const { Server } = require('socket.io')
 // const { ObjectID } = require('bson');
 
 require('dotenv').config();
@@ -12,6 +14,15 @@ const app = express();
 // middle ware 
 app.use(cors());
 app.use(express.json());
+
+// socket io
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: "http://localhost:3000",
+    method: ["GET", "POST", "DELETE", "PUT"]
+})
+
+// module.exports = io;
 
 function auth(req, res, next) {
     const token = req.headers.authorization.split(' ')[1];
@@ -42,104 +53,123 @@ function auth(req, res, next) {
 
 const client = new MongoClient(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
 
-client.connect(err => {
+async function run() {
+    const postCollection = client.db('boloDb').collection('posts');
 
-    if (err) {
-        console.log(err);
-        return;
-    }
-    else {
-        const postCollection = client.db('boloDb').collection('posts');
+    console.log('connection')
 
-        app.post('/post', async (req, res) => {
-            const post = {
-                ...req.body,
-                likes: 0,
-                likedby: {},
-            };
-            console.log(post);
-            const result = await postCollection.insertOne(post);
-            console.log(result)
-            res.send(result)
-        })
 
-        app.get('/posts', async (req, res) => {
+    app.post('/post', async (req, res) => {
+        const post = {
+            ...req.body,
+            likes: 0,
+            likedby: {},
+        };
+        const result = await postCollection.insertOne(post);
+        res.send(result)
+    })
 
-            const cursor = postCollection.find({});
-            const result = await cursor.toArray();
-            console.log(result)
-            res.send(result);
-        })
-        app.get('/post/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = { _id: ObjectId(id) }
-            const result = await postCollection.findOne(query);
+    app.get('/posts', async (req, res) => {
 
-            console.log(result.likes)
-            res.send(result);
-        })
+        const option = {
+            sort: {
+                "createdAt": -1
+            }
+        }
+        const cursor = postCollection.find({}, option);
+        const result = await cursor.toArray();
+        res.send(result);
+    })
 
-        // likes
-        //  const likesCollection = postCollection.collection('likes');
-        app.get('/likes/:id', async (req, res) => {
+    app.get('/post/:id', async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: ObjectId(id) }
+        const result = await postCollection.findOne(query);
+        res.send(result);
+    })
 
-        })
+    // likes
+    //  const likesCollection = postCollection.collection('likes');
+    app.get('/likes/:id', async (req, res) => {
 
-        // update likes
-        app.put('/likes', async (req, res) => {
-            const body = req.body;
-            const postId = body.id;
-            console.log(postId)
-            const isLiked = body.isLiked;
-            console.log(isLiked)
-            const query = { _id: ObjectId(postId) }
-            const post = await postCollection.findOne(query);
-            let updatedDoc = {};
-            let likedby = post.likedby;
-            const userEmail = body.email;
-            let totalLikes = Object.keys(likedby).length;
+    })
 
-            if (isLiked) {
+    // update likes
+    app.put('/likes', async (req, res) => {
+        const body = req.body;
+        const postId = body.id;
+        const isLiked = body.isLiked;
+        const query = { _id: ObjectId(postId) }
+        const post = await postCollection.findOne(query);
+        let updatedDoc = {};
+        let likedby = post.likedby;
+        const userEmail = body.email;
+        let totalLikes = Object.keys(likedby).length;
 
-                likedby[userEmail] = true;
-                console.log(likedby);
+        if (isLiked) {
+
+            likedby[userEmail] = true;
+            totalLikes = Object.keys(likedby).length;
+
+
+            updatedDoc = {
+                $set: {
+                    likedby,
+                    likes: totalLikes
+                }
+
+            }
+        }
+        else {
+            if (likedby[userEmail]) {
+                delete likedby[userEmail];
                 totalLikes = Object.keys(likedby).length;
-
-
-                updatedDoc = {
-                    $set: {
-                        likedby,
-                        likes: totalLikes
-                    }
-
-                }
-            }
-            else {
-                if (likedby[userEmail]) {
-                    delete likedby[userEmail];
-                    totalLikes = Object.keys(likedby).length;
-                }
-
-                updatedDoc = {
-                    $set: {
-                        likedby,
-                        likes: totalLikes
-                    }
-                }
             }
 
-            const result = await postCollection.updateOne(query, updatedDoc);
-            console.log(result)
+            updatedDoc = {
+                $set: {
+                    likedby,
+                    likes: totalLikes
+                }
+            }
+        }
 
-            res.send(result)
-        })
-    }
-})
+        const result = await postCollection.updateOne(query, updatedDoc);
+        res.send(result)
+    })
+
+    // comments
+    const commentsCollection = client.db('boloDb').collection('comments');
+
+    app.get('/comments/:id', async (req, res) => {
+        const postId = req.params.id;
+        const post = await postCollection.findOne({ _id: ObjectId(postId) });
+        console.log(post)
+        res.send(post);
+    })
+
+
+    app.post('/comments', async (req, res) => {
+        const commentInfo = req.body;
+        console.log(commentInfo);
+        const result = await commentsCollection.insertOne(commentInfo);
+        console.log(result)
+        res.send(result);
+    })
+    app.get('/comments', async (req, res) => {
+        const postId = req.query.postId;
+        const cursor = commentsCollection.find({ postId: postId });
+        const comments = await cursor.toArray();
+        console.log(comments)
+        res.send(comments);
+    })
+}
+
+run().catch(console.dir)
 
 app.post('/jwt', async (req, res) => {
     const user = req.body;
     const token = jwt.sign(user, process.env.TOKEN_SECRET);
-    console.log(token)
     res.json({ token });
 })
 
@@ -149,13 +179,10 @@ app.get('/services', auth, async (req, res) => {
 
 })
 
-app.listen(process.env.PORT, () => {
-    client.connect(err => {
-        const collection = client.db("test").collection("devices");
+app.get('/', (req, res) => {
+    res.send('server running')
+})
 
-        if (err) console.log(err)
-        else console.log("connected to mongo")
-        // perform actions on the collection object
-    });
-    console.log('listening')
+server.listen(process.env.PORT, () => {
+    console.log('listening', process.env.PORT)
 })
