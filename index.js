@@ -3,8 +3,8 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const { query } = require('express');
-const http = require('http');
-const { Server } = require('socket.io')
+// const http = require('http');
+// const { Server } = require('socket.io')
 // const { ObjectID } = require('bson');
 
 require('dotenv').config();
@@ -16,11 +16,11 @@ app.use(cors());
 app.use(express.json());
 
 // socket io
-const server = http.createServer(app);
-const io = new Server(server, {
-    cors: "http://localhost:3000",
-    method: ["GET", "POST", "DELETE", "PUT"]
-})
+// const server = http.createServer(app);
+// const io = new Server(server, {
+//     cors: "https://bolo-server.vercel.app",
+//     method: ["GET", "POST", "DELETE", "PUT"]
+// })
 
 // module.exports = io;
 
@@ -158,7 +158,10 @@ async function run() {
     })
     app.get('/comments', async (req, res) => {
         const postId = req.query.postId;
-        const cursor = commentsCollection.find({ postId: postId });
+        const option = {
+            sort: { "time": -1 }
+        }
+        const cursor = commentsCollection.find({ postId: postId }, option);
         const comments = await cursor.toArray();
         console.log(comments)
         res.send(comments);
@@ -183,6 +186,6 @@ app.get('/', (req, res) => {
     res.send('server running')
 })
 
-server.listen(process.env.PORT, () => {
+app.listen(process.env.PORT, () => {
     console.log('listening', process.env.PORT)
 })
